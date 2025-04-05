@@ -4,9 +4,19 @@ from PIL import Image
 import os
 from fpdf import FPDF
 import pytesseract
+import speech_recognition as sr
+import requests
+from time import sleep
 
-# Make sure tesseract is installed and accessible
-# If it's not installed, download and install from https://github.com/tesseract-ocr/tesseract
+
+# Check internet connection
+def is_connected():
+    try:
+        requests.get("http://www.google.com", timeout=3)
+        return True
+    except requests.ConnectionError:
+        return False
+
 
 class ImageToPdfConverter:
     def __init__(self, root, image_dir=None):
@@ -14,6 +24,7 @@ class ImageToPdfConverter:
         self.image_paths = []
         self.selected_images = tk.Listbox(root)
         self.image_dir = image_dir
+        self.audio_file = None
 
         self.initialise_ui()
         if image_dir:
@@ -28,6 +39,12 @@ class ImageToPdfConverter:
 
         convert_btn = tk.Button(self.root, text="Convert Images to PDF", command=self.convert_to_pdf)
         convert_btn.pack(pady=10)
+
+        select_audio_btn = tk.Button(self.root, text="Select Audio for Speech-to-Text", command=self.select_audio)
+        select_audio_btn.pack(pady=10)
+
+        convert_audio_btn = tk.Button(self.root, text="Convert Audio to PDF", command=self.convert_audio_to_pdf)
+        convert_audio_btn.pack(pady=10)
 
         self.selected_images.pack(pady=20)
 
@@ -76,9 +93,69 @@ class ImageToPdfConverter:
         else:
             messagebox.showerror("Error", "No images selected!")
 
+    def select_audio(self):
+        self.audio_file = filedialog.askopenfilename(filetypes=[("Audio Files", "*.wav;*.mp3;*.ogg")])
+
+    def convert_audio_to_pdf(self):
+        if not self.audio_file:
+            messagebox.showerror("Error", "No audio file selected!")
+            return
+
+        # Check if there's internet connectivity for online speech-to-text (Google API)
+        if is_connected():
+            self.extract_text_from_audio_online()
+        else:
+            self.extract_text_from_audio_offline()
+
+    def extract_text_from_audio_online(self):
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(self.audio_file) as source:
+            print("Listening for audio...")
+            audio = recognizer.record(source)
+
+        try:
+            text = recognizer.recognize_google(audio)
+            print("Google Speech Recognition thinks you said: " + text)
+            self.create_pdf_from_text(text)
+        except sr.UnknownValueError:
+            messagebox.showerror("Error", "Google Speech Recognition could not understand the audio.")
+        except sr.RequestError as e:
+            messagebox.showerror("Error", f"Could not request results from Google Speech Recognition service; {e}")
+
+    def extract_text_from_audio_offline(self):
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(self.audio_file) as source:
+            print("Listening for audio...")
+            audio = recognizer.record(source)
+
+        try:
+            text = recognizer.recognize_sphinx(audio)
+            print("Offline Speech Recognition thinks you said: " + text)
+            self.create_pdf_from_text(text)
+        except sr.UnknownValueError:
+            messagebox.showerror("Error", "Offline Speech Recognition could not understand the audio.")
+        except sr.RequestError as e:
+            messagebox.showerror("Error", f"Offline Speech Recognition error: {e}")
+
+    def create_pdf_from_text(self, text):
+        pdf_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
+        if pdf_path:
+            pdf = FPDF()
+            pdf.set_auto_page_break(auto=True)
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+
+            # Add the extracted text to the PDF
+            pdf.multi_cell(0, 10, text)
+
+            # Save the PDF
+            pdf.output(pdf_path)
+            messagebox.showinfo("Success", "PDF successfully created from audio!")
+
+
 def main():
     root = tk.Tk()
-    root.title("Image to PDF Converter")
+    root.title("Image and Audio to PDF Converter")
 
     # Automatically select images from a predefined directory (optional)
     image_dir = "path_to_your_image_folder"  # Replace with your directory path
@@ -86,6 +163,7 @@ def main():
 
     root.geometry("600x800")
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
